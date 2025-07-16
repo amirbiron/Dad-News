@@ -11,8 +11,8 @@ import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler
 
-# Groq for translation
-from groq import Groq
+# Gemini for translation
+import google.generativeai as genai
 
 # YouTube API
 from googleapiclient.discovery import build
@@ -35,15 +35,15 @@ class HistoryBot:
     def __init__(self):
         # Environment variables
         self.bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-        self.groq_api_key = os.getenv('GROQ_API_KEY')
+        self.gemini_api_key = os.getenv('GEMINI_API_KEY')
         self.youtube_api_key = os.getenv('YOUTUBE_API_KEY')
         
         # Check for missing environment variables
         missing_vars = []
         if not self.bot_token:
             missing_vars.append('TELEGRAM_BOT_TOKEN')
-        if not self.groq_api_key:
-            missing_vars.append('GROQ_API_KEY')
+        if not self.gemini_api_key:
+            missing_vars.append('GEMINI_API_KEY')
         if not self.youtube_api_key:
             missing_vars.append('YOUTUBE_API_KEY')
         
@@ -53,10 +53,11 @@ class HistoryBot:
         
         # Initialize APIs
         try:
-            self.groq_client = Groq(api_key=self.groq_api_key)
-            logger.info("✅ Groq client initialized successfully")
+            genai.configure(api_key=self.gemini_api_key)
+            self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+            logger.info("✅ Gemini client initialized successfully")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize Groq client: {e}")
+            logger.error(f"❌ Failed to initialize Gemini client: {e}")
             raise
             
         try:
@@ -100,54 +101,42 @@ class HistoryBot:
         ]
 
     async def translate_to_hebrew(self, text: str, context: str = "") -> str:
-        """Translate text to Hebrew using Groq"""
+        """Translate text to Hebrew using Gemini"""
         try:
             logger.info(f"Starting translation for text: {text[:50]}...")
             
             prompt = f"""
-תרגם את הטקסט הבא לעברית טבעית ונאה. תן תרגום אחד בלבד, לא אופציות מרובות.
+תרגם את הטקסט הבא לעברית טבעית וזורמת. תן תרגום אחד בלבד.
 
 הקשר: {context if context else "תוכן כללי"}
 
 חוקים לתרגום:
-1. תן תרגום אחד ויחיד בלבד
-2. אל תכתוב "בחרו את התרגום" או אופציות מרובות
+1. תרגם לעברית נכונה וטבעית
+2. תן תרגום אחד בלבד - לא אופציות מרובות
 3. אל תוסיף הערות או הסברים
-4. השתמש בעברית זורמת וטבעית
-5. אל תתחיל במילים "התרגום הוא" או דומה - פשוט כתוב את התרגום
+4. השתמש במילים נכונות בעברית
+5. אל תכתוב "התרגום הוא" - פשוט כתוב את התרגום
 
-טקסט לתרגום:
+טקסט באנגלית:
 {text}
 
-תרגום:
+תרגום לעברית:
 """
             
-            chat_completion = self.groq_client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                model="llama3-8b-8192",
-                temperature=0.1,  # Lower temperature for more consistent results
-                max_tokens=500,
-            )
+            response = self.gemini_model.generate_content(prompt)
+            result = response.text.strip()
             
-            result = chat_completion.choices[0].message.content.strip()
-            
-            # Clean up common unwanted patterns
+            # Clean up unwanted patterns
             unwanted_patterns = [
-                "בחרו את התרגום",
                 "התרגום הוא:",
                 "התרגום:",
+                "בעברית:",
+                "תרגום:",
                 "או:",
-                "(תוספת:",
-                "אם תרצה",
-                "אני יכול לעשות שיפורים"
+                "אופציה"
             ]
             
-            # Split by lines and take only the first clean line
+            # Take first clean line
             lines = result.split('\n')
             clean_result = ""
             
@@ -157,14 +146,6 @@ class HistoryBot:
                     clean_result = line
                     break
             
-            # If no clean line found, take the first non-empty line
-            if not clean_result:
-                for line in lines:
-                    if line.strip():
-                        clean_result = line.strip()
-                        break
-            
-            # Final fallback
             if not clean_result:
                 clean_result = result.split('\n')[0].strip()
             
@@ -587,16 +568,16 @@ async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         debug_info.append(f"❌ NatGeo RSS: Error - {str(e)}")
     
-    # Test Groq translation
+    # Test Gemini translation
     try:
-        logger.info("Testing Groq translation...")
+        logger.info("Testing Gemini translation...")
         test_translation = await bot.translate_to_hebrew("Hello world", "test")
         if test_translation:
-            debug_info.append(f"✅ Groq API: Translation working")
+            debug_info.append(f"✅ Gemini API: Translation working")
         else:
-            debug_info.append("❌ Groq API: Translation failed")
+            debug_info.append("❌ Gemini API: Translation failed")
     except Exception as e:
-        debug_info.append(f"❌ Groq API: Error - {str(e)}")
+        debug_info.append(f"❌ Gemini API: Error - {str(e)}")
     
     # Test YouTube API
     try:
