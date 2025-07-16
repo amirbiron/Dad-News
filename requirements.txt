@@ -1,24 +1,24 @@
 # Telegram Bot
-python-telegram-bot==20.8
+python-telegram-bot>=20.8
 
 # RSS Feed parsing
-feedparser==6.0.10
+feedparser>=6.0.11
 
 # HTTP requests
-requests==2.31.0
+requests>=2.31.0
 
 # Groq AI for translation
-groq==0.4.1
+groq>=0.4.1
 
 # YouTube API
-google-api-python-client==2.108.0
+google-api-python-client>=2.108.0
 
 # Flask for keep alive
-Flask==3.0.0
+Flask>=3.0.0
 
 # Additional utilities
-python-dateutil==2.8.2
-pytz==2023.3
+python-dateutil>=2.8.2
+pytz>=2023.3
 
 # Environment variables (optional, for development)
-python-dotenv==1.0.0
+python-dotenv>=1.0.0
