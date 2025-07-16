@@ -20,8 +20,5 @@ Flask==3.0.0
 python-dateutil==2.8.2
 pytz==2023.3
 
-# For async operations
-asyncio-compat==0.1.2
-
 # Environment variables (optional, for development)
 python-dotenv==1.0.0
