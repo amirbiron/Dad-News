@@ -41,7 +41,7 @@ cp .env.example .env
 
 ```env
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-GROQ_API_KEY=your_groq_api_key_here  
+GEMINI_API_KEY=your_gemini_api_key_here  
 YOUTUBE_API_KEY=your_youtube_api_key_here
 ```
 
@@ -52,10 +52,10 @@ YOUTUBE_API_KEY=your_youtube_api_key_here
 2. שלח `/newbot` ועקב אחר ההנחיות
 3. העתק את הטוקן שתקבל
 
-### Groq API Key
-1. היכנס ל-https://console.groq.com/
-2. צור חשבון חדש (בחינם)
-3. לך ל-API Keys ויצור מפתח חדש
+### Google Gemini API Key
+1. היכנס ל-https://aistudio.google.com/app/apikey
+2. התחבר עם חשבון Google
+3. לחץ "Create API Key"
 4. העתק את המפתח
 
 ### YouTube API Key
@@ -103,7 +103,7 @@ python main.py
 
 - **HistoryBot Class**: המחלקה הראשית המנהלת את כל הפונקציות
 - **RSS Parsing**: שליפת תוכן מ-History.com ו-National Geographic
-- **Groq Translation**: תרגום אוטומטי לעברית
+- **Gemini Translation**: תרגום אוטומטי לעברית
 - **YouTube Search**: חיפוש סרטונים רלוונטיים
 - **Conversation Handler**: ניהול זרימת השיחה עם המשתמש
 - **Flask Keep-Alive**: שרת HTTP לשמירה על הבוט פעיל
