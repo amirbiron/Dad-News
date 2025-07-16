@@ -105,14 +105,22 @@ class HistoryBot:
             logger.info(f"Starting translation for text: {text[:50]}...")
             
             prompt = f"""
-            תרגם את הטקסט הבא לעברית טבעית ונאה. 
-            {f"הקשר: {context}" if context else ""}
-            
-            טקסט לתרגום:
-            {text}
-            
-            תרגום לעברית:
-            """
+תרגם את הטקסט הבא לעברית טבעית ונאה. תן תרגום אחד בלבד, לא אופציות מרובות.
+
+הקשר: {context if context else "תוכן כללי"}
+
+חוקים לתרגום:
+1. תן תרגום אחד ויחיד בלבד
+2. אל תכתוב "בחרו את התרגום" או אופציות מרובות
+3. אל תוסיף הערות או הסברים
+4. השתמש בעברית זורמת וטבעית
+5. אל תתחיל במילים "התרגום הוא" או דומה - פשוט כתוב את התרגום
+
+טקסט לתרגום:
+{text}
+
+תרגום:
+"""
             
             chat_completion = self.groq_client.chat.completions.create(
                 messages=[
@@ -122,12 +130,47 @@ class HistoryBot:
                     }
                 ],
                 model="llama3-8b-8192",
-                temperature=0.3,
+                temperature=0.1,  # Lower temperature for more consistent results
+                max_tokens=500,
             )
             
             result = chat_completion.choices[0].message.content.strip()
-            logger.info(f"Translation successful: {result[:50]}...")
-            return result
+            
+            # Clean up common unwanted patterns
+            unwanted_patterns = [
+                "בחרו את התרגום",
+                "התרגום הוא:",
+                "התרגום:",
+                "או:",
+                "(תוספת:",
+                "אם תרצה",
+                "אני יכול לעשות שיפורים"
+            ]
+            
+            # Split by lines and take only the first clean line
+            lines = result.split('\n')
+            clean_result = ""
+            
+            for line in lines:
+                line = line.strip()
+                if line and not any(pattern in line for pattern in unwanted_patterns):
+                    clean_result = line
+                    break
+            
+            # If no clean line found, take the first non-empty line
+            if not clean_result:
+                for line in lines:
+                    if line.strip():
+                        clean_result = line.strip()
+                        break
+            
+            # Final fallback
+            if not clean_result:
+                clean_result = result.split('\n')[0].strip()
+            
+            logger.info(f"Translation successful: {clean_result[:50]}...")
+            return clean_result if clean_result else text
+            
         except Exception as e:
             logger.error(f"Translation error: {e}")
             logger.error(f"Original text: {text}")
