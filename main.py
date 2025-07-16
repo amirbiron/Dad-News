@@ -38,13 +38,47 @@ class HistoryBot:
         self.groq_api_key = os.getenv('GROQ_API_KEY')
         self.youtube_api_key = os.getenv('YOUTUBE_API_KEY')
         
+        # Check for missing environment variables
+        missing_vars = []
+        if not self.bot_token:
+            missing_vars.append('TELEGRAM_BOT_TOKEN')
+        if not self.groq_api_key:
+            missing_vars.append('GROQ_API_KEY')
+        if not self.youtube_api_key:
+            missing_vars.append('YOUTUBE_API_KEY')
+        
+        if missing_vars:
+            logger.error(f"Missing environment variables: {', '.join(missing_vars)}")
+            raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+        
         # Initialize APIs
-        self.groq_client = Groq(api_key=self.groq_api_key)
-        self.youtube = build('youtube', 'v3', developerKey=self.youtube_api_key)
+        try:
+            self.groq_client = Groq(api_key=self.groq_api_key)
+            logger.info("✅ Groq client initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Groq client: {e}")
+            raise
+            
+        try:
+            self.youtube = build('youtube', 'v3', developerKey=self.youtube_api_key)
+            logger.info("✅ YouTube client initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize YouTube client: {e}")
+            raise
         
         # RSS sources
         self.history_rss = "https://www.history.com/.rss/full"
         self.natgeo_rss = "https://www.nationalgeographic.com/pages/feed/"
+        
+        # Backup RSS sources
+        self.backup_history_rss = [
+            "https://www.smithsonianmag.com/rss/latest_articles/",
+            "https://www.historytoday.com/rss.xml"
+        ]
+        self.backup_world_rss = [
+            "https://www.bbc.com/news/science_and_environment/rss.xml",
+            "https://www.scientificamerican.com/xml/rss.xml"
+        ]
         
         # Diamond sources (rotate daily)
         self.diamond_sources = [
@@ -68,6 +102,8 @@ class HistoryBot:
     async def translate_to_hebrew(self, text: str, context: str = "") -> str:
         """Translate text to Hebrew using Groq"""
         try:
+            logger.info(f"Starting translation for text: {text[:50]}...")
+            
             prompt = f"""
             תרגם את הטקסט הבא לעברית טבעית ונאה. 
             {f"הקשר: {context}" if context else ""}
@@ -89,60 +125,129 @@ class HistoryBot:
                 temperature=0.3,
             )
             
-            return chat_completion.choices[0].message.content.strip()
+            result = chat_completion.choices[0].message.content.strip()
+            logger.info(f"Translation successful: {result[:50]}...")
+            return result
         except Exception as e:
             logger.error(f"Translation error: {e}")
+            logger.error(f"Original text: {text}")
             return text  # Return original if translation fails
 
     async def get_history_today(self) -> Optional[dict]:
         """Get today's historical event from History.com RSS"""
-        try:
-            feed = feedparser.parse(self.history_rss)
-            if feed.entries:
-                entry = feed.entries[0]  # Get the latest entry
+        # Try main source first, then backups
+        sources_to_try = [self.history_rss] + self.backup_history_rss
+        
+        for source_url in sources_to_try:
+            try:
+                logger.info(f"Fetching RSS from: {source_url}")
+                feed = feedparser.parse(source_url)
                 
-                title_hebrew = await self.translate_to_hebrew(
-                    entry.title, "כותרת של אירוע היסטורי"
-                )
+                logger.info(f"RSS status: {feed.get('status', 'No status')}")
+                logger.info(f"Number of entries: {len(feed.entries)}")
                 
-                summary_hebrew = await self.translate_to_hebrew(
-                    entry.summary[:300] + "...", "תקציר של אירוע היסטורי"
-                )
-                
-                return {
-                    "title": title_hebrew,
-                    "summary": summary_hebrew,
-                    "link": entry.link,
-                    "original_title": entry.title
-                }
-        except Exception as e:
-            logger.error(f"Error fetching history: {e}")
+                if feed.entries:
+                    entry = feed.entries[0]  # Get the latest entry
+                    logger.info(f"Entry title: {entry.title}")
+                    logger.info(f"Entry has summary: {hasattr(entry, 'summary')}")
+                    
+                    # Try translation
+                    title_hebrew = await self.translate_to_hebrew(
+                        entry.title, "כותרת של אירוע היסטורי"
+                    )
+                    
+                    # If translation failed, use original title with note
+                    if title_hebrew == entry.title:
+                        title_hebrew = f"[EN] {entry.title}"
+                        logger.warning("Translation failed, using original title")
+                    
+                    # Handle missing summary
+                    summary = getattr(entry, 'summary', entry.get('description', ''))
+                    if not summary:
+                        summary = "לא זמין תיאור לכתבה זו"
+                    
+                    summary_hebrew = await self.translate_to_hebrew(
+                        summary[:300] + "...", "תקציר של אירוע היסטורי"
+                    )
+                    
+                    # If translation failed, use original summary with note
+                    if summary_hebrew == summary[:300] + "...":
+                        summary_hebrew = f"[EN] {summary[:200]}..."
+                        logger.warning("Summary translation failed, using original")
+                    
+                    result = {
+                        "title": title_hebrew,
+                        "summary": summary_hebrew,
+                        "link": entry.link,
+                        "original_title": entry.title
+                    }
+                    logger.info(f"Successfully created history content from {source_url}")
+                    return result
+                else:
+                    logger.warning(f"No entries found in RSS feed: {source_url}")
+            except Exception as e:
+                logger.error(f"Error fetching from {source_url}: {e}")
+                continue  # Try next source
+        
+        logger.error("Failed to fetch content from all history sources")
         return None
 
     async def get_world_content(self) -> Optional[dict]:
         """Get interesting content from National Geographic or similar"""
-        try:
-            feed = feedparser.parse(self.natgeo_rss)
-            if feed.entries:
-                # Get a random interesting entry
-                entry = random.choice(feed.entries[:5])
+        # Try main source first, then backups
+        sources_to_try = [self.natgeo_rss] + self.backup_world_rss
+        
+        for source_url in sources_to_try:
+            try:
+                logger.info(f"Fetching world content from: {source_url}")
+                feed = feedparser.parse(source_url)
                 
-                title_hebrew = await self.translate_to_hebrew(
-                    entry.title, "כותרת של תוכן מעניין על טבע או תרבות"
-                )
+                logger.info(f"RSS status: {feed.get('status', 'No status')}")
+                logger.info(f"Number of entries: {len(feed.entries)}")
                 
-                summary_hebrew = await self.translate_to_hebrew(
-                    entry.summary[:250] + "...", "תיאור של תוכן מעניין"
-                )
-                
-                return {
-                    "title": title_hebrew,
-                    "summary": summary_hebrew,
-                    "link": entry.link,
-                    "original_title": entry.title
-                }
-        except Exception as e:
-            logger.error(f"Error fetching world content: {e}")
+                if feed.entries:
+                    # Get a random interesting entry
+                    entry = random.choice(feed.entries[:5])
+                    logger.info(f"Selected entry: {entry.title}")
+                    
+                    title_hebrew = await self.translate_to_hebrew(
+                        entry.title, "כותרת של תוכן מעניין על טבע או תרבות"
+                    )
+                    
+                    # If translation failed, use original title with note
+                    if title_hebrew == entry.title:
+                        title_hebrew = f"[EN] {entry.title}"
+                        logger.warning("Title translation failed, using original")
+                    
+                    # Handle missing summary
+                    summary = getattr(entry, 'summary', entry.get('description', ''))
+                    if not summary:
+                        summary = "תוכן מעניין ללא תיאור זמין"
+                    
+                    summary_hebrew = await self.translate_to_hebrew(
+                        summary[:250] + "...", "תיאור של תוכן מעניין"
+                    )
+                    
+                    # If translation failed, use original summary with note
+                    if summary_hebrew == summary[:250] + "...":
+                        summary_hebrew = f"[EN] {summary[:150]}..."
+                        logger.warning("Summary translation failed, using original")
+                    
+                    result = {
+                        "title": title_hebrew,
+                        "summary": summary_hebrew,
+                        "link": entry.link,
+                        "original_title": entry.title
+                    }
+                    logger.info(f"Successfully created world content from {source_url}")
+                    return result
+                else:
+                    logger.warning(f"No entries found in RSS feed: {source_url}")
+            except Exception as e:
+                logger.error(f"Error fetching from {source_url}: {e}")
+                continue  # Try next source
+        
+        logger.error("Failed to fetch content from all world sources")
         return None
 
     async def get_diamond_fact(self) -> Optional[dict]:
@@ -233,6 +338,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the daily history cycle"""
     user = update.effective_user
     
+    logger.info(f"🚀 User {user.first_name} ({user.id}) started a new session")
+    
     # Send welcome message
     welcome_text = f"""
 🌟 שלום {user.first_name}! ברוך הבא לבוט "היסטורי" 📜
@@ -245,10 +352,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     
     await update.message.reply_text(welcome_text)
     
+    # Test APIs first
+    logger.info("🔍 Testing API connections...")
+    
     # Get today's historical event
+    logger.info("📅 Fetching historical content...")
     history_content = await bot.get_history_today()
     
     if history_content:
+        logger.info("✅ Historical content loaded successfully")
         message_text = f"""
 📅 **מה קרה היום בהיסטוריה?**
 
@@ -273,6 +385,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         
         return WAITING_FOR_WORLD
     else:
+        logger.error("❌ Failed to load historical content")
         await update.message.reply_text("❌ מצטער, לא הצלחתי לטעון תוכן כרגע. נסה שוב מאוחר יותר.")
         return ConversationHandler.END
 
@@ -403,6 +516,64 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the conversation"""
     await update.message.reply_text("🌀 הסבב בוטל. שלח /start כדי להתחיל מחדש.")
     return ConversationHandler.END
+
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Debug command to test all components"""
+    await update.message.reply_text("🔍 בודק את כל הרכיבים...")
+    
+    debug_info = []
+    
+    # Test RSS feeds
+    try:
+        logger.info("Testing History RSS...")
+        feed = feedparser.parse(bot.history_rss)
+        if feed.entries:
+            debug_info.append(f"✅ History RSS: {len(feed.entries)} entries")
+        else:
+            debug_info.append("❌ History RSS: No entries found")
+    except Exception as e:
+        debug_info.append(f"❌ History RSS: Error - {str(e)}")
+    
+    try:
+        logger.info("Testing NatGeo RSS...")
+        feed = feedparser.parse(bot.natgeo_rss)
+        if feed.entries:
+            debug_info.append(f"✅ NatGeo RSS: {len(feed.entries)} entries")
+        else:
+            debug_info.append("❌ NatGeo RSS: No entries found")
+    except Exception as e:
+        debug_info.append(f"❌ NatGeo RSS: Error - {str(e)}")
+    
+    # Test Groq translation
+    try:
+        logger.info("Testing Groq translation...")
+        test_translation = await bot.translate_to_hebrew("Hello world", "test")
+        if test_translation:
+            debug_info.append(f"✅ Groq API: Translation working")
+        else:
+            debug_info.append("❌ Groq API: Translation failed")
+    except Exception as e:
+        debug_info.append(f"❌ Groq API: Error - {str(e)}")
+    
+    # Test YouTube API
+    try:
+        logger.info("Testing YouTube API...")
+        request = bot.youtube.search().list(
+            q="test",
+            part='snippet',
+            type='video',
+            maxResults=1
+        )
+        response = request.execute()
+        if response['items']:
+            debug_info.append("✅ YouTube API: Working")
+        else:
+            debug_info.append("❌ YouTube API: No results")
+    except Exception as e:
+        debug_info.append(f"❌ YouTube API: Error - {str(e)}")
+    
+    debug_message = "🔍 **תוצאות בדיקת מערכת:**\n\n" + "\n".join(debug_info)
+    await update.message.reply_text(debug_message, parse_mode='Markdown')
 
 # Flask app for keep alive
 flask_app = Flask(__name__)
