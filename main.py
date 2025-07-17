@@ -7,6 +7,16 @@ from datetime import datetime
 from typing import Optional
 import random
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✅ Loaded .env file")
+except ImportError:
+    print("⚠️  python-dotenv not installed, using system environment variables")
+except Exception as e:
+    print(f"⚠️  Could not load .env file: {e}")
+
 # Telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler
