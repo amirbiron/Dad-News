@@ -81,6 +81,42 @@ class HistoryBot:
         self.backup_history_rss = [
             "https://www.smithsonianmag.com/rss/latest_articles/",
             "https://www.historytoday.com/rss.xml"
+        ]
+        
+        # Admin chat ID for daily messages
+        self.admin_chat_id = os.getenv('ADMIN_CHAT_ID')
+        
+        # Sent articles tracking
+        self.sent_articles = set()
+        
+        # World content RSS sources
+        self.world_rss = "https://www.nationalgeographic.com/pages/feed/"
+        
+        # Backup world RSS sources
+        self.backup_world_rss = [
+            "https://www.bbc.com/news/science_and_environment/rss.xml",
+            "https://www.scientificamerican.com/xml/rss.xml"
+        ]
+        
+        # Diamond sources (rotate daily)
+        self.diamond_sources = [
+            {
+                "name": "Natural Diamond Council",
+                "url": "https://www.naturaldiamonds.com/journal/",
+                "topics": ["cullinan diamond history", "hope diamond facts", "famous diamonds timeline"]
+            },
+            {
+                "name": "Smithsonian",
+                "url": "https://www.si.edu/",
+                "topics": ["hope diamond smithsonian", "famous gems history", "diamond collection"]
+            },
+            {
+                "name": "Royal Collection Trust",
+                "url": "https://www.rct.uk/",
+                "topics": ["crown jewels diamonds", "cullinan diamond story", "royal diamonds history"]
+            }
+        ]
+
     async def send_daily_history(self, context: ContextTypes.DEFAULT_TYPE):
         """Send daily history message automatically at 9 AM"""
         try:
@@ -150,29 +186,27 @@ class HistoryBot:
             logger.info("✅ Daily message scheduler initialized for 9:00 AM Israel time")
         except Exception as e:
             logger.error(f"❌ Failed to schedule daily messages: {e}")
-        self.backup_world_rss = [
-            "https://www.bbc.com/news/science_and_environment/rss.xml",
-            "https://www.scientificamerican.com/xml/rss.xml"
+
+    def is_article_sent(self, title: str, source_url: str) -> bool:
+        """Check if an article has already been sent"""
+        article_key = f"{title}_{source_url}"
+        return article_key in self.sent_articles
+
+    def should_filter_content(self, title: str, summary: str) -> bool:
+        """Check if content should be filtered out (mystical, supernatural, etc.)"""
+        filter_keywords = [
+            'mystical', 'supernatural', 'paranormal', 'ghost', 'spirit', 'haunted',
+            'ufo', 'alien', 'conspiracy', 'prophecy', 'fortune telling', 'astrology',
+            'zodiac', 'horoscope', 'crystal', 'energy', 'aura', 'chakra'
         ]
         
-        # Diamond sources (rotate daily)
-        self.diamond_sources = [
-            {
-                "name": "Natural Diamond Council",
-                "url": "https://www.naturaldiamonds.com/journal/",
-                "topics": ["cullinan diamond history", "hope diamond facts", "famous diamonds timeline"]
-            },
-            {
-                "name": "Smithsonian",
-                "url": "https://www.si.edu/",
-                "topics": ["hope diamond smithsonian", "famous gems history", "diamond collection"]
-            },
-            {
-                "name": "Royal Collection Trust",
-                "url": "https://www.rct.uk/",
-                "topics": ["crown jewels diamonds", "cullinan diamond story", "royal diamonds history"]
-            }
-        ]
+        text_to_check = f"{title} {summary}".lower()
+        return any(keyword in text_to_check for keyword in filter_keywords)
+
+    def mark_article_sent(self, title: str, source_url: str):
+        """Mark an article as sent to avoid duplicates"""
+        article_key = f"{title}_{source_url}"
+        self.sent_articles.add(article_key)
 
     async def translate_to_hebrew(self, text: str, context: str = "") -> str:
         """Translate text to Hebrew using Gemini with RTL formatting"""
