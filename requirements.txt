@@ -1,5 +1,5 @@
-# Telegram Bot
-python-telegram-bot>=20.8
+# Telegram Bot (with job queue for scheduling)
+python-telegram-bot[job-queue]>=20.8
 
 # RSS Feed parsing
 feedparser>=6.0.11
@@ -22,6 +22,3 @@ pytz>=2023.3
 
 # Environment variables (optional, for development)
 python-dotenv>=1.0.0
-
-# Scheduling for daily content
-schedule>=1.2.0
