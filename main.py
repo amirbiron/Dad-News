@@ -204,18 +204,15 @@ class HistoryBot:
     def schedule_daily_messages(self, job_queue: JobQueue):
         """Schedule daily messages at 9 AM Israel time"""
         try:
-            israel_tz = pytz.timezone('Asia/Jerusalem')
-            
-            # Schedule for 9:00 AM Israel time every day
+            # Schedule for 9:00 AM Israel time every day (6:00 UTC)
             job_queue.run_daily(
                 self.send_daily_history,
-                time=time(hour=9, minute=0),  # 9:00 AM
-                days=(0, 1, 2, 3, 4, 5, 6),  # Every day of the week
-                timezone=israel_tz,
+                time=time(hour=6, minute=0),  # 9 AM Israel = 6 AM UTC
+                days=(0, 1, 2, 3, 4, 5, 6),
                 name='daily_history'
             )
             
-            logger.info("✅ Daily message scheduler initialized for 9:00 AM Israel time")
+            logger.info("✅ Daily message scheduler initialized for 9:00 AM Israel time (6:00 UTC)")
         except Exception as e:
             logger.error(f"❌ Failed to schedule daily messages: {e}")
 
