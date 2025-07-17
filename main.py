@@ -35,7 +35,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # States for conversation handler
-WAITING_FOR_WORLD, WAITING_FOR_DIAMOND, WAITING_FOR_VIDEO = range(3)
+WAITING_FOR_WORLD, WAITING_FOR_VIDEO = range(2)
 
 class HistoryBot:
     def __init__(self):
@@ -99,25 +99,6 @@ class HistoryBot:
         self.backup_world_rss = [
             "https://www.bbc.com/news/science_and_environment/rss.xml",
             "https://www.scientificamerican.com/xml/rss.xml"
-        ]
-        
-        # Diamond sources (rotate daily)
-        self.diamond_sources = [
-            {
-                "name": "Natural Diamond Council",
-                "url": "https://www.naturaldiamonds.com/journal/",
-                "topics": ["cullinan diamond history", "hope diamond facts", "famous diamonds timeline"]
-            },
-            {
-                "name": "Smithsonian",
-                "url": "https://www.si.edu/",
-                "topics": ["hope diamond smithsonian", "famous gems history", "diamond collection"]
-            },
-            {
-                "name": "Royal Collection Trust",
-                "url": "https://www.rct.uk/",
-                "topics": ["crown jewels diamonds", "cullinan diamond story", "royal diamonds history"]
-            }
         ]
 
     def init_database(self):
@@ -468,42 +449,7 @@ class HistoryBot:
         logger.error("Failed to fetch content from all world sources")
         return None
 
-    async def get_diamond_fact(self) -> Optional[dict]:
-        """Get a historical diamond fact from reliable sources"""
-        try:
-            # Rotate source daily
-            today = datetime.now().day
-            source = self.diamond_sources[today % len(self.diamond_sources)]
-            topic = random.choice(source["topics"])
-            
-            # Create educational content about diamonds
-            diamond_facts = [
-                {
-                    "title": "היהלום הכחול המפורסם - Hope Diamond",
-                    "content": "יהלום התקווה הכחול שוקל 45.52 קראט ונחשב לאחד היהלומים המפורסמים בעולם. הוא מוצג כיום במוזיאון הסמיתסוניאן בוושינגטון ונקרא על שם הנרי פיליפ הופ שרכש אותו בשנת 1839.",
-                    "source": "Smithsonian Institution",
-                    "link": "https://www.si.edu/spotlight/hope-diamond"
-                },
-                {
-                    "title": "יהלום קוליןנן - הגדול שנמצא אי פעם",
-                    "content": "יהלום קוליןנן שוקל 3,106 קראט והוא היהלום הגדול ביותר שנמצא אי פעם. הוא התגלה בדרום אפריקה בשנת 1905 וחולק לתשעה יהלומים עיקריים, כאשר הגדול שבהם מוטמע בכתר המלכותי הבריטי.",
-                    "source": "Royal Collection Trust",
-                    "link": "https://www.rct.uk/collection/themes/exhibitions/diamonds-a-jubilee-celebration"
-                },
-                {
-                    "title": "היהלום הורוד הגדול - The Pink Star",
-                    "content": "The Pink Star הוא יהלום ורוד נדיר שוקל 59.60 קראט. הוא נמכר במכירה פומבית בשנת 2017 תמורת 71.2 מיליון דולר, שיא עולמי עבור יהלום שנמכר במכירה פומבית.",
-                    "source": "Natural Diamond Council",
-                    "link": "https://www.naturaldiamonds.com/"
-                }
-            ]
-            
-            fact = random.choice(diamond_facts)
-            return fact
-            
-        except Exception as e:
-            logger.error(f"Error fetching diamond fact: {e}")
-        return None
+
 
     async def search_youtube_video(self, custom_query: str = None) -> Optional[dict]:
         """Search for a relevant YouTube video based on current content"""
@@ -660,44 +606,6 @@ async def world_content_handler(update: Update, context: ContextTypes.DEFAULT_TY
 """
         
         keyboard = [
-            [InlineKeyboardButton("💎 תן לי עובדה נדירה על יהלומים", callback_data='diamond_fact')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            message_text,
-            reply_markup=reply_markup,
-            parse_mode='Markdown',
-            disable_web_page_preview=True
-        )
-        
-        return WAITING_FOR_DIAMOND
-    else:
-        await query.edit_message_text("❌ לא הצלחתי לטעון תוכן כרגע.")
-        return ConversationHandler.END
-
-async def diamond_fact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle diamond fact request"""
-    query = update.callback_query
-    await query.answer()
-    
-    await query.edit_message_text("⏳ מחפש עובדה מרתקת על יהלומים...")
-    
-    diamond_content = await bot.get_diamond_fact()
-    
-    if diamond_content:
-        message_text = f"""
-💎 **עובדה היסטורית על יהלומים**
-
-🔸 **{diamond_content['title']}**
-
-{diamond_content['content']}
-
-📚 **מקור:** {diamond_content['source']}
-🔗 [קרא עוד במקור]({diamond_content['link']})
-"""
-        
-        keyboard = [
             [InlineKeyboardButton("🎬 סיים לי עם סרטון קצר", callback_data='video_content')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -713,6 +621,8 @@ async def diamond_fact_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         await query.edit_message_text("❌ לא הצלחתי לטעון תוכן כרגע.")
         return ConversationHandler.END
+
+
 
 async def video_content_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle video content request - now based on previous content instead of diamonds"""
@@ -926,7 +836,6 @@ def main():
         entry_points=[CommandHandler('start', start)],
         states={
             WAITING_FOR_WORLD: [CallbackQueryHandler(world_content_handler, pattern='^world_content$')],
-            WAITING_FOR_DIAMOND: [CallbackQueryHandler(diamond_fact_handler, pattern='^diamond_fact$')],
             WAITING_FOR_VIDEO: [CallbackQueryHandler(video_content_handler, pattern='^video_content$')],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
