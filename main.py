@@ -162,7 +162,16 @@ class HistoryBot:
             history_content = await self.get_history_today()
             
             if history_content:
-                message_text = f"""
+                # Check if translation failed
+                if history_content.get('translation_failed', False):
+                    # For daily messages, we'll skip content with translation issues
+                    logger.warning("⚠️ תרגום נכשל עבור הודעה יומית - דילוג על התוכן")
+                    await context.bot.send_message(
+                        chat_id=self.admin_chat_id,
+                        text="🌅 בוקר טוב! מצטער, לא הצלחתי לטעון תוכן היסטורי כרגע. נסה לשלוח /start למשך ידני."
+                    )
+                else:
+                    message_text = f"""
 🌅 **בוקר טוב! מה קרה היום בהיסטוריה?**
 
 🔸 **{history_content['title']}**
@@ -175,21 +184,21 @@ class HistoryBot:
 
 💡 **רוצה עוד תוכן מעניין?** לחץ על הכפתור למטה להמשך הסבב היומי!
 """
-                
-                keyboard = [
-                    [InlineKeyboardButton("📸 תראה לי משהו מעניין מהעולם", callback_data='world_content')]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await context.bot.send_message(
-                    chat_id=self.admin_chat_id,
-                    text=message_text,
-                    reply_markup=reply_markup,
-                    parse_mode='Markdown',
-                    disable_web_page_preview=True
-                )
-                
-                logger.info("✅ Daily history message sent successfully")
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("📸 תראה לי משהו מעניין מהעולם", callback_data='world_content')]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await context.bot.send_message(
+                        chat_id=self.admin_chat_id,
+                        text=message_text,
+                        reply_markup=reply_markup,
+                        parse_mode='Markdown',
+                        disable_web_page_preview=True
+                    )
+                    
+                    logger.info("✅ Daily history message sent successfully")
             else:
                 # Send fallback message
                 await context.bot.send_message(
@@ -227,8 +236,8 @@ class HistoryBot:
         text_to_check = f"{title} {summary}".lower()
         return any(keyword in text_to_check for keyword in filter_keywords)
 
-    async def translate_to_hebrew(self, text: str, context: str = "") -> str:
-        """Translate text to Hebrew using Gemini with RTL formatting"""
+    async def translate_to_hebrew(self, text: str, context: str = "") -> Optional[str]:
+        """Translate text to Hebrew using Gemini with RTL formatting. Returns None if translation failed."""
         try:
             logger.info(f"Starting translation for text: {text[:50]}...")
             
@@ -279,16 +288,21 @@ class HistoryBot:
             if not clean_result:
                 clean_result = result.split('\n')[0].strip()
             
+            # Check if translation failed (translated == original)
+            if clean_result == text:
+                logger.warning(f"⚠️ תרגום נכשל עבור הטקסט: {text[:40]}")
+                return None
+            
             # Fix RTL/LTR issues by adding RTL markers
             clean_result = f"‏{clean_result}‏"
             
             logger.info(f"Translation successful: {clean_result[:50]}...")
-            return clean_result if clean_result else text
+            return clean_result
             
         except Exception as e:
             logger.error(f"Translation error: {e}")
             logger.error(f"Original text: {text}")
-            return text  # Return original if translation fails
+            return None  # Return None if translation fails
 
     async def get_history_today(self) -> Optional[dict]:
         """Get today's historical event from History.com RSS"""
@@ -324,11 +338,6 @@ class HistoryBot:
                             entry.title, "כותרת של אירוע היסטורי"
                         )
                         
-                        # If translation failed, use original title with note
-                        if title_hebrew == entry.title:
-                            title_hebrew = f"[EN] {entry.title}"
-                            logger.warning("Translation failed, using original title")
-                        
                         # Handle missing summary and make it longer (3x)
                         if not summary:
                             summary = "לא זמין תיאור לכתבה זו"
@@ -340,16 +349,22 @@ class HistoryBot:
                             longer_summary, "תקציר מפורט של אירוע היסטורי"
                         )
                         
-                        # If translation failed, use original summary with note
-                        if summary_hebrew == longer_summary:
-                            summary_hebrew = f"[EN] {summary[:600]}..."
-                            logger.warning("Summary translation failed, using original")
+                        # Check if translations failed
+                        translation_failed = False
+                        if title_hebrew is None:
+                            title_hebrew = entry.title  # Keep original for internal use
+                            translation_failed = True
+                        
+                        if summary_hebrew is None:
+                            summary_hebrew = longer_summary  # Keep original for internal use
+                            translation_failed = True
                         
                         result = {
                             "title": title_hebrew,
                             "summary": summary_hebrew,
                             "link": entry.link,
-                            "original_title": entry.title
+                            "original_title": entry.title,
+                            "translation_failed": translation_failed
                         }
                         
                         # Mark as sent
@@ -401,11 +416,6 @@ class HistoryBot:
                             entry.title, "כותרת של תוכן מעניין על טבע או תרבות"
                         )
                         
-                        # If translation failed, use original title with note
-                        if title_hebrew == entry.title:
-                            title_hebrew = f"[EN] {entry.title}"
-                            logger.warning("Title translation failed, using original")
-                        
                         # Handle missing summary and make it longer
                         if not summary:
                             summary = "תוכן מעניין ללא תיאור זמין"
@@ -417,16 +427,22 @@ class HistoryBot:
                             longer_summary, "תיאור מפורט של תוכן מעניין"
                         )
                         
-                        # If translation failed, use original summary with note
-                        if summary_hebrew == longer_summary:
-                            summary_hebrew = f"[EN] {summary[:450]}..."
-                            logger.warning("Summary translation failed, using original")
+                        # Check if translations failed
+                        translation_failed = False
+                        if title_hebrew is None:
+                            title_hebrew = entry.title  # Keep original for internal use
+                            translation_failed = True
+                        
+                        if summary_hebrew is None:
+                            summary_hebrew = longer_summary  # Keep original for internal use
+                            translation_failed = True
                         
                         result = {
                             "title": title_hebrew,
                             "summary": summary_hebrew,
                             "link": entry.link,
-                            "original_title": entry.title
+                            "original_title": entry.title,
+                            "translation_failed": translation_failed
                         }
                         
                         # Mark as sent
@@ -554,7 +570,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     
     if history_content:
         logger.info("✅ Historical content loaded successfully")
-        message_text = f"""
+        
+        # Check if translation failed
+        if history_content.get('translation_failed', False):
+            # Store content in context for retry
+            context.user_data['pending_content'] = history_content
+            context.user_data['content_type'] = 'history'
+            
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="⚠️ לא הצלחתי לתרגם את התוכן לעברית.\nמה תרצה לעשות?",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔁 נסה לתרגם שוב", callback_data="retry_translation")],
+                    [InlineKeyboardButton("➡️ המשך בכל זאת", callback_data="skip_translation")]
+                ])
+            )
+            return WAITING_FOR_WORLD
+        else:
+            message_text = f"""
 📅 **מה קרה היום בהיסטוריה?**
 
 🔸 **{history_content['title']}**
@@ -563,20 +596,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 🔗 [קרא עוד במקור]({history_content['link']})
 """
-        
-        keyboard = [
-            [InlineKeyboardButton("📸 תראה לי משהו מעניין מהעולם", callback_data='world_content')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(
-            message_text, 
-            reply_markup=reply_markup,
-            parse_mode='Markdown',
-            disable_web_page_preview=True
-        )
-        
-        return WAITING_FOR_WORLD
+            
+            keyboard = [
+                [InlineKeyboardButton("📸 תראה לי משהו מעניין מהעולם", callback_data='world_content')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                message_text, 
+                reply_markup=reply_markup,
+                parse_mode='Markdown',
+                disable_web_page_preview=True
+            )
+            
+            return WAITING_FOR_WORLD
     else:
         logger.error("❌ Failed to load historical content")
         await update.message.reply_text("❌ מצטער, לא הצלחתי לטעון תוכן כרגע. נסה שוב מאוחר יותר.")
@@ -592,7 +625,23 @@ async def world_content_handler(update: Update, context: ContextTypes.DEFAULT_TY
     world_content = await bot.get_world_content()
     
     if world_content:
-        message_text = f"""
+        # Check if translation failed
+        if world_content.get('translation_failed', False):
+            # Store content in context for retry
+            context.user_data['pending_content'] = world_content
+            context.user_data['content_type'] = 'world'
+            
+            await context.bot.send_message(
+                chat_id=query.from_user.id,
+                text="⚠️ לא הצלחתי לתרגם את התוכן לעברית.\nמה תרצה לעשות?",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔁 נסה לתרגם שוב", callback_data="retry_translation")],
+                    [InlineKeyboardButton("➡️ המשך בכל זאת", callback_data="skip_translation")]
+                ])
+            )
+            return WAITING_FOR_VIDEO
+        else:
+            message_text = f"""
 🌍 **רגע מהעולם - טבע ותרבות**
 
 🔸 **{world_content['title']}**
@@ -601,20 +650,20 @@ async def world_content_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 🔗 [קרא עוד במקור]({world_content['link']})
 """
-        
-        keyboard = [
-            [InlineKeyboardButton("🎬 סיים לי עם סרטון קצר", callback_data='video_content')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            message_text,
-            reply_markup=reply_markup,
-            parse_mode='Markdown',
-            disable_web_page_preview=True
-        )
-        
-        return WAITING_FOR_VIDEO
+            
+            keyboard = [
+                [InlineKeyboardButton("🎬 סיים לי עם סרטון קצר", callback_data='video_content')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                message_text,
+                reply_markup=reply_markup,
+                parse_mode='Markdown',
+                disable_web_page_preview=True
+            )
+            
+            return WAITING_FOR_VIDEO
     else:
         await query.edit_message_text("❌ לא הצלחתי לטעון תוכן כרגע.")
         return ConversationHandler.END
@@ -672,6 +721,202 @@ async def video_content_handler(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         logger.error(f"Error in video_content_handler: {e}")
         await query.edit_message_text("❌ אירעה שגיאה בחיפוש הסרטון.")
+        return ConversationHandler.END
+
+async def retry_translation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle retry translation button"""
+    query = update.callback_query
+    await query.answer()
+    
+    logger.info("🔁 משתמש ביקש לנסות תרגום מחדש")
+    
+    # Get pending content
+    pending_content = context.user_data.get('pending_content')
+    content_type = context.user_data.get('content_type')
+    
+    if not pending_content:
+        await query.edit_message_text("❌ לא נמצא תוכן לנסות לתרגם מחדש.")
+        return ConversationHandler.END
+    
+    await query.edit_message_text("⏳ מנסה לתרגם מחדש...")
+    
+    # Try to translate again
+    title_hebrew = await bot.translate_to_hebrew(
+        pending_content['original_title'], 
+        "כותרת של אירוע היסטורי" if content_type == 'history' else "כותרת של תוכן מעניין על טבע או תרבות"
+    )
+    
+    summary_hebrew = await bot.translate_to_hebrew(
+        pending_content['summary'], 
+        "תקציר מפורט של אירוע היסטורי" if content_type == 'history' else "תיאור מפורט של תוכן מעניין"
+    )
+    
+    # Check if translation succeeded this time
+    translation_failed = False
+    if title_hebrew is None:
+        title_hebrew = pending_content['original_title']
+        translation_failed = True
+    
+    if summary_hebrew is None:
+        summary_hebrew = pending_content['summary']
+        translation_failed = True
+    
+    if translation_failed:
+        # Translation still failed, show the same options
+        await context.bot.send_message(
+            chat_id=query.from_user.id,
+            text="⚠️ עדיין לא הצלחתי לתרגם את התוכן לעברית.\nמה תרצה לעשות?",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔁 נסה לתרגם שוב", callback_data="retry_translation")],
+                [InlineKeyboardButton("➡️ המשך בכל זאת", callback_data="skip_translation")]
+            ])
+        )
+        return WAITING_FOR_WORLD if content_type == 'history' else WAITING_FOR_VIDEO
+    else:
+        # Translation succeeded, show the content
+        if content_type == 'history':
+            message_text = f"""
+📅 **מה קרה היום בהיסטוריה?**
+
+🔸 **{title_hebrew}**
+
+{summary_hebrew}
+
+🔗 [קרא עוד במקור]({pending_content['link']})
+"""
+            keyboard = [
+                [InlineKeyboardButton("📸 תראה לי משהו מעניין מהעולם", callback_data='world_content')]
+            ]
+            next_state = WAITING_FOR_WORLD
+        else:  # world content
+            message_text = f"""
+🌍 **רגע מהעולם - טבע ותרבות**
+
+🔸 **{title_hebrew}**
+
+{summary_hebrew}
+
+🔗 [קרא עוד במקור]({pending_content['link']})
+"""
+            keyboard = [
+                [InlineKeyboardButton("🎬 סיים לי עם סרטון קצר", callback_data='video_content')]
+            ]
+            next_state = WAITING_FOR_VIDEO
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            message_text,
+            reply_markup=reply_markup,
+            parse_mode='Markdown',
+            disable_web_page_preview=True
+        )
+        
+        # Clear pending content
+        context.user_data.pop('pending_content', None)
+        context.user_data.pop('content_type', None)
+        
+        return next_state
+
+async def skip_translation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle skip translation button"""
+    query = update.callback_query
+    await query.answer()
+    
+    logger.info("➡️ המשתמש בחר להמשיך בלי תרגום")
+    
+    content_type = context.user_data.get('content_type')
+    
+    # Clear pending content
+    context.user_data.pop('pending_content', None)
+    context.user_data.pop('content_type', None)
+    
+    if content_type == 'history':
+        # Skip to world content
+        await query.edit_message_text("⏳ מחפש תוכן מעניין מהעולם...")
+        world_content = await bot.get_world_content()
+        
+        if world_content:
+            # Check if translation failed for world content too
+            if world_content.get('translation_failed', False):
+                context.user_data['pending_content'] = world_content
+                context.user_data['content_type'] = 'world'
+                
+                await context.bot.send_message(
+                    chat_id=query.from_user.id,
+                    text="⚠️ לא הצלחתי לתרגם את התוכן לעברית.\nמה תרצה לעשות?",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔁 נסה לתרגם שוב", callback_data="retry_translation")],
+                        [InlineKeyboardButton("➡️ המשך בכל זאת", callback_data="skip_translation")]
+                    ])
+                )
+                return WAITING_FOR_VIDEO
+            else:
+                message_text = f"""
+🌍 **רגע מהעולם - טבע ותרבות**
+
+🔸 **{world_content['title']}**
+
+{world_content['summary']}
+
+🔗 [קרא עוד במקור]({world_content['link']})
+"""
+                keyboard = [
+                    [InlineKeyboardButton("🎬 סיים לי עם סרטון קצר", callback_data='video_content')]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.edit_message_text(
+                    message_text,
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown',
+                    disable_web_page_preview=True
+                )
+                
+                return WAITING_FOR_VIDEO
+        else:
+            await query.edit_message_text("❌ לא הצלחתי לטעון תוכן כרגע.")
+            return ConversationHandler.END
+    else:  # world content
+        # Skip to video content
+        await query.edit_message_text("⏳ מחפש סרטון רלוונטי לתוכן שראינו...")
+        video_content = await bot.search_youtube_video()
+        
+        if video_content:
+            message_text = f"""
+🎥 **סרטון לסיום**
+
+🔸 **{video_content['title']}**
+
+{video_content['description']}
+
+🎬 [צפה בסרטון]({video_content['url']})
+
+*חיפשתי סרטון על: {video_content.get('search_query', 'תוכן רלוונטי')}*
+
+---
+
+🌀 **זהו הסבב היומי שלך. ניפגש מחר ב-9:00!** 💎
+
+💡 **טיפ:** תוכל לשלוח /start בכל עת כדי להתחיל סבב חדש
+📊 שלח /stats לסטטיסטיקות הבוט
+"""
+            
+            await query.edit_message_text(
+                message_text,
+                parse_mode='Markdown',
+                disable_web_page_preview=True
+            )
+        else:
+            await query.edit_message_text("""
+🌀 **זהו הסבב היומי שלך. ניפגש מחר ב-9:00!** 💎
+
+💡 **טיפ:** תוכל לשלוח /start בכל עת כדי להתחיל סבב חדש
+📊 שלח /stats לסטטיסטיקות הבוט
+
+*לא הצלחתי למצוא סרטון מתאים הפעם, אבל התוכן שקיבלת היה איכותי!*
+""")
+        
         return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -832,8 +1077,16 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
-            WAITING_FOR_WORLD: [CallbackQueryHandler(world_content_handler, pattern='^world_content$')],
-            WAITING_FOR_VIDEO: [CallbackQueryHandler(video_content_handler, pattern='^video_content$')],
+            WAITING_FOR_WORLD: [
+                CallbackQueryHandler(world_content_handler, pattern='^world_content$'),
+                CallbackQueryHandler(retry_translation_handler, pattern='^retry_translation$'),
+                CallbackQueryHandler(skip_translation_handler, pattern='^skip_translation$')
+            ],
+            WAITING_FOR_VIDEO: [
+                CallbackQueryHandler(video_content_handler, pattern='^video_content$'),
+                CallbackQueryHandler(retry_translation_handler, pattern='^retry_translation$'),
+                CallbackQueryHandler(skip_translation_handler, pattern='^skip_translation$')
+            ],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
