@@ -73,6 +73,9 @@ class HistoryBot:
             logger.error(f"❌ Failed to initialize YouTube client: {e}")
             raise
         
+        # Initialize SQLite database for persistent storage
+        self.init_database()
+        
         # RSS sources
         self.history_rss = "https://www.history.com/.rss/full"
         self.natgeo_rss = "https://www.nationalgeographic.com/pages/feed/"
@@ -86,7 +89,7 @@ class HistoryBot:
         # Admin chat ID for daily messages
         self.admin_chat_id = os.getenv('ADMIN_CHAT_ID')
         
-        # Sent articles tracking
+        # Sent articles tracking (legacy - now using SQLite)
         self.sent_articles = set()
         
         # World content RSS sources
@@ -116,6 +119,54 @@ class HistoryBot:
                 "topics": ["crown jewels diamonds", "cullinan diamond story", "royal diamonds history"]
             }
         ]
+
+    def init_database(self):
+        """Initialize SQLite database for persistent storage"""
+        try:
+            # Use tmp directory for Render compatibility
+            db_path = '/tmp/bot_data.db'
+            self.conn = sqlite3.connect(db_path, check_same_thread=False)
+            
+            # Create sent_articles table if it doesn't exist
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sent_articles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    article_hash TEXT UNIQUE NOT NULL,
+                    title TEXT NOT NULL,
+                    date_sent TEXT NOT NULL,
+                    source TEXT NOT NULL
+                )
+            ''')
+            self.conn.commit()
+            logger.info("✅ SQLite database initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize database: {e}")
+            raise
+
+    def is_article_sent(self, title: str, source: str) -> bool:
+        """Check if article was already sent using SQLite"""
+        try:
+            article_hash = hashlib.md5(f"{title}_{source}".encode()).hexdigest()
+            cursor = self.conn.cursor()
+            cursor.execute('SELECT 1 FROM sent_articles WHERE article_hash = ?', (article_hash,))
+            return cursor.fetchone() is not None
+        except Exception as e:
+            logger.error(f"Error checking article: {e}")
+            return False
+
+    def mark_article_sent(self, title: str, source: str):
+        """Mark article as sent in SQLite"""
+        try:
+            article_hash = hashlib.md5(f"{title}_{source}".encode()).hexdigest()
+            cursor = self.conn.cursor()
+            cursor.execute(
+                'INSERT OR IGNORE INTO sent_articles (article_hash, title, date_sent, source) VALUES (?, ?, ?, ?)',
+                (article_hash, title, datetime.now().isoformat(), source)
+            )
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error marking article as sent: {e}")
 
     async def send_daily_history(self, context: ContextTypes.DEFAULT_TYPE):
         """Send daily history message automatically at 9 AM"""
@@ -187,11 +238,6 @@ class HistoryBot:
         except Exception as e:
             logger.error(f"❌ Failed to schedule daily messages: {e}")
 
-    def is_article_sent(self, title: str, source_url: str) -> bool:
-        """Check if an article has already been sent"""
-        article_key = f"{title}_{source_url}"
-        return article_key in self.sent_articles
-
     def should_filter_content(self, title: str, summary: str) -> bool:
         """Check if content should be filtered out (mystical, supernatural, etc.)"""
         filter_keywords = [
@@ -202,11 +248,6 @@ class HistoryBot:
         
         text_to_check = f"{title} {summary}".lower()
         return any(keyword in text_to_check for keyword in filter_keywords)
-
-    def mark_article_sent(self, title: str, source_url: str):
-        """Mark an article as sent to avoid duplicates"""
-        article_key = f"{title}_{source_url}"
-        self.sent_articles.add(article_key)
 
     async def translate_to_hebrew(self, text: str, context: str = "") -> str:
         """Translate text to Hebrew using Gemini with RTL formatting"""
@@ -788,6 +829,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in stats command: {e}")
         await update.message.reply_text("❌ לא ניתן לטעון סטטיסטיקות כרגע.")
+
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Debug command to test all components"""
     await update.message.reply_text("🔍 בודק את כל הרכיבים...")
     
@@ -863,13 +906,20 @@ def run_flask():
 def main():
     """Main function to run the bot"""
     
+    # Create bot instance
+    global bot
+    bot = HistoryBot()
+    
     # Start Flask in background
     flask_thread = Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
     
-    # Create application
+    # Create application with job queue
     application = Application.builder().token(bot.bot_token).build()
+    
+    # Schedule daily messages
+    bot.schedule_daily_messages(application.job_queue)
     
     # Create conversation handler
     conv_handler = ConversationHandler(
@@ -882,8 +932,11 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)],
     )
     
-    # Add handlers
-    application.add_handler(conv_handler)
+    # Add handlers - תיקון סדר!
+    application.add_handler(CommandHandler('debug', debug_command))
+    application.add_handler(CommandHandler('stats', stats_command))
+    application.add_handler(CommandHandler('getchatid', get_chat_id))
+    application.add_handler(conv_handler)  # ConversationHandler אחרון!
     
     # Add error handler
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

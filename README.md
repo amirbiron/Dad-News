@@ -1,157 +1,140 @@
-# 📜 בוט "היסטורי" - בוט טלגרם לתוכן היסטורי יומי
+# 🤖 בוט היסטורי - Telegram History Bot
 
-בוט טלגרם אישי ואלגנטי עם סבב יומי של תוכן היסטורי איכותי ומכובד בעברית.
+בוט טלגרם חכם שמספק תוכן יומי מעניין: היסטוריה → עולם → יהלומים → סרטון
 
-## 🎯 תכונות
+## ✨ תכונות
 
-- **תוכן יומי איכותי**: שליפה אוטומטית מ-History.com ו-National Geographic
-- **תרגום מלא לעברית**: באמצעות Groq AI
-- **4 שלבים בכל סבב**:
-  1. 📅 מה קרה היום בהיסטוריה
-  2. 🌍 תוכן מעניין מהעולם  
-  3. 💎 עובדה היסטורית על יהלומים
-  4. 🎬 סרטון יוטיוב לסיום
-- **ממשק ידידותי**: כפתורי המשך, ללא צורך בהקלדה
-- **מקורות אמינים**: כל תוכן כולל קישור למקור
+- 📅 **הודעות יומיות אוטומטיות** ב-9:00 בבוקר (שעון ישראל)
+- 🌍 **תוכן מגוון**: היסטוריה, טבע, מדע, יהלומים מפורסמים
+- 🔄 **מניעת כפילויות** - לא שולח אותה כתבה פעמיים
+- 🌐 **תרגום אוטומטי** לעברית באמצעות Google Gemini
+- 📺 **סרטונים רלוונטיים** מ-YouTube
+- 📊 **סטטיסטיקות** ופקודות ניהול
+- 🚀 **עובד ב-Render.com** עם keep-alive
 
-## 🛠️ התקנה
+## 🚀 התקנה מהירה
 
-### 1. הורדת הקוד
+### 1. הגדרת משתני סביבה ב-Render
 
 ```bash
-git clone <repository-url>
-cd history-telegram-bot
-```
-
-### 2. התקנת תלויות
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3. הגדרת משתני סביבה
-
-צור קובץ `.env` בתיקיית הפרויקט:
-
-```bash
-cp .env.example .env
-```
-
-ערוך את הקובץ עם המפתחות שלך:
-
-```env
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-GEMINI_API_KEY=your_gemini_api_key_here  
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+GEMINI_API_KEY=your_gemini_api_key_here
 YOUTUBE_API_KEY=your_youtube_api_key_here
+ADMIN_CHAT_ID=your_chat_id_here  # אופציונלי - להודעות יומיות
 ```
 
-## 🔑 קבלת מפתחות API
+### 2. Deploy ל-Render
 
-### Telegram Bot Token
-1. פתח טלגרם וחפש את @BotFather
-2. שלח `/newbot` ועקב אחר ההנחיות
-3. העתק את הטוקן שתקבל
+1. Fork את הפרויקט
+2. הוסף את משתני הסביבה ב-Render
+3. Deploy אוטומטי!
 
-### Google Gemini API Key
-1. היכנס ל-https://aistudio.google.com/app/apikey
-2. התחבר עם חשבון Google
-3. לחץ "Create API Key"
-4. העתק את המפתח
+## 📋 פקודות זמינות
 
-### YouTube API Key
-1. היכנס ל-Google Cloud Console
-2. צור פרויקט חדש או בחר קיים
-3. הפעל את YouTube Data API v3
-4. צור credentials מסוג API Key
-5. העתק את המפתח
+- `/start` - התחל סבב יומי חדש
+- `/stats` - הצג סטטיסטיקות הבוט
+- `/debug` - בדוק את כל הרכיבים
+- `/getchatid` - קבל את ה-Chat ID שלך
+- `/cancel` - בטל את הסבב הנוכחי
 
-## 🚀 הפעלה
+## 🔧 תיקונים אחרונים
 
-### הפעלה מקומית
+### ✅ בעיה 1: פקודות חדשות לא עובדות
+**תוקן:** שינוי סדר ה-handlers - פקודות רגילות לפני ConversationHandler
 
-```bash
-python main.py
+### ✅ בעיה 2: סיכומים קצרים מדי
+**תוקן:** הגדלת הסיכומים ל-900 תווים (היסטוריה) ו-750 תווים (עולם)
+
+### ✅ בעיה 3: כתבות חוזרות על עצמן
+**תוקן:** SQLite database עם נתיב `/tmp` ל-Render compatibility
+
+### ✅ בעיה 4: בעיות RTL בתרגום
+**תוקן:** הוספת RTL markers ושיפור ה-prompt
+
+### ✅ בעיה 5: JobQueue scheduling
+**תוקן:** הוספת תזמון הודעות יומיות אוטומטי
+
+## 🗄️ מבנה Database
+
+```sql
+CREATE TABLE sent_articles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_hash TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    date_sent TEXT NOT NULL,
+    source TEXT NOT NULL
+);
 ```
 
-### דיפלוי ב-Render
+## 🌐 מקורות RSS
 
-1. העלה את הקוד ל-GitHub
-2. צור חשבון ב-Render.com
-3. צור Web Service חדש מ-GitHub
-4. הגדר משתני סביבה בלוח הבקרה של Render
-5. הבוט יעלה אוטומטית
+### היסטוריה
+- History.com (ראשי)
+- Smithsonian Magazine (גיבוי)
+- History Today (גיבוי)
 
-## 📖 שימוש
+### עולם וטבע
+- National Geographic (ראשי)
+- BBC Science (גיבוי)
+- Scientific American (גיבוי)
 
-1. שלח `/start` לבוט בטלגרם
-2. קבל תוכן היסטורי על "מה קרה היום"
-3. לחץ על הכפתור להמשך - "תראה לי משהו מעניין מהעולם"
-4. לחץ שוב - "תן לי עובדה נדירה על יהלומים" 
-5. לחץ לסיום - "סיים לי עם סרטון קצר"
-6. נהנה מהסבב היומי!
+## 🔍 בדיקת תקינות
 
-## 🏗️ ארכיטקטורה
+שלח `/debug` לבוט כדי לבדוק:
+- ✅ RSS feeds
+- ✅ Gemini API
+- ✅ YouTube API
+- ✅ Database connection
 
-```
-├── main.py              # קובץ ראשי של הבוט
-├── requirements.txt     # תלויות Python
-├── .env.example        # דוגמה למשתני סביבה
-└── README.md           # מדריך זה
-```
+## 📊 סטטיסטיקות
 
-### רכיבים עיקריים
+שלח `/stats` כדי לראות:
+- מספר כתבות שנשלחו
+- מקורות שונים
+- כתבה אחרונה
+- מצב הודעות יומיות
 
-- **HistoryBot Class**: המחלקה הראשית המנהלת את כל הפונקציות
-- **RSS Parsing**: שליפת תוכן מ-History.com ו-National Geographic
-- **Gemini Translation**: תרגום אוטומטי לעברית
-- **YouTube Search**: חיפוש סרטונים רלוונטיים
-- **Conversation Handler**: ניהול זרימת השיחה עם המשתמש
-- **Flask Keep-Alive**: שרת HTTP לשמירה על הבוט פעיל
+## 🚨 פתרון בעיות
 
-## 🔧 התאמה אישית
+### הבוט לא מגיב לפקודות
+1. בדוק שהפקודות נרשמו לפני ConversationHandler
+2. שלח `/debug` לבדיקת מערכת
 
-### הוספת מקורות RSS
+### כתבות חוזרות על עצמן
+1. וודא שה-SQLite database נוצר ב-`/tmp`
+2. בדוק שהפונקציות `is_article_sent` ו-`mark_article_sent` עובדות
 
-ערוך את רשימת המקורות ב-`HistoryBot.__init__()`:
+### תרגום לא עובד
+1. בדוק שה-GEMINI_API_KEY מוגדר נכון
+2. שלח `/debug` לבדיקת Gemini API
 
-```python
-self.custom_rss = "https://your-rss-source.com/feed"
-```
+## 📝 היסטוריית שינויים
 
-### שינוי נושאי יהלומים
+### v2.1 - תיקונים מרכזיים
+- 🔧 תיקון סדר handlers
+- 📏 הגדלת סיכומים
+- 🗄️ SQLite עם נתיב זמני
+- 🌐 שיפור RTL
+- ⏰ JobQueue scheduling
 
-ערוך את `self.diamond_sources` כדי להוסיף מקורות חדשים:
-
-```python
-{
-    "name": "מקור חדש",
-    "url": "https://example.com",
-    "topics": ["נושא 1", "נושא 2"]
-}
-```
-
-## 🐛 פתרון בעיות
-
-### הבוט לא מגיב
-- ודא שהטוקן של הבוט נכון
-- בדוק שהבוט פועל (log messages)
-
-### שגיאות תרגום
-- ודא שמפתח Groq תקין ופעיל
-- בדוק גבולות השימוש ב-API
-
-### תוכן לא נטען
-- בדוק חיבור לאינטרנט
-- ודא שמקורות RSS זמינים
-
-## 📝 רישיון
-
-הפרויקט זמין למטרות אישיות. אנא כבד את זכויות היוצרים של המקורות המצוטטים.
+### v2.0 - שדרוגים
+- 🤖 מעבר ל-Google Gemini
+- 📅 הודעות יומיות אוטומטיות
+- 🔄 מניעת כפילויות
+- 📊 סטטיסטיקות מתקדמות
 
 ## 🤝 תרומה
 
-מוזמן לשלוח Pull Requests או לפתוח Issues לשיפורים!
+1. Fork את הפרויקט
+2. צור branch חדש
+3. Commit את השינויים
+4. Push ל-branch
+5. פתח Pull Request
+
+## 📄 רישיון
+
+MIT License - חופשי לשימוש ולשינוי
 
 ---
 
-**ברוך הבא לחוויה יומית של תוכן היסטורי מעשיר! 📜✨**
+**🎯 מטרה:** לספק תוכן מעניין ואיכותי בעברית, מדי יום, בצורה אוטומטית ומתקדמת.
