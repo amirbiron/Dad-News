@@ -7,6 +7,16 @@ from datetime import datetime
 from typing import Optional
 import random
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✅ Loaded .env file")
+except ImportError:
+    print("⚠️  python-dotenv not installed, using system environment variables")
+except Exception as e:
+    print(f"⚠️  Could not load .env file: {e}")
+
 # Telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler
@@ -20,6 +30,8 @@ from googleapiclient.discovery import build
 # Flask for keep alive
 from flask import Flask
 from threading import Thread
+import schedule
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -37,6 +49,10 @@ class HistoryBot:
         self.bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         self.gemini_api_key = os.getenv('GEMINI_API_KEY')
         self.youtube_api_key = os.getenv('YOUTUBE_API_KEY')
+        
+        # Track sent articles to avoid duplicates
+        self.sent_articles = set()
+        self.last_reset_date = datetime.now().date()
         
         # Check for missing environment variables
         missing_vars = []
@@ -80,6 +96,13 @@ class HistoryBot:
             "https://www.bbc.com/news/science_and_environment/rss.xml",
             "https://www.scientificamerican.com/xml/rss.xml"
         ]
+        
+        # Reset sent articles if it's a new day
+        current_date = datetime.now().date()
+        if current_date != self.last_reset_date:
+            self.sent_articles.clear()
+            self.last_reset_date = current_date
+            logger.info("Reset sent articles for new day")
         
         # Diamond sources (rotate daily)
         self.diamond_sources = [
@@ -171,9 +194,34 @@ class HistoryBot:
                 logger.info(f"Number of entries: {len(feed.entries)}")
                 
                 if feed.entries:
-                    entry = feed.entries[0]  # Get the latest entry
+                    # Filter out mystical/pseudoscientific content
+                    filtered_entries = []
+                    mystical_keywords = [
+                        'mystical', 'psychic', 'paranormal', 'supernatural', 'magic', 'spirit', 'ghost',
+                        'astrology', 'horoscope', 'fortune', 'crystal', 'aura', 'chakra', 'energy healing',
+                        'מיסטי', 'אסטרולוגיה', 'הורוסקופ', 'אנרגיה', 'צ\'אקרה', 'רוחני', 'על טבעי'
+                    ]
+                    
+                    for entry in feed.entries[:10]:  # Check first 10 entries
+                        title_lower = entry.title.lower()
+                        if not any(keyword in title_lower for keyword in mystical_keywords):
+                            filtered_entries.append(entry)
+                    
+                    if not filtered_entries:
+                        logger.warning("All entries filtered out as mystical content")
+                        continue
+                    
+                    # Check for duplicates
+                    if self.is_article_sent(entry.title):
+                        logger.info(f"Article already sent today: {entry.title}")
+                        continue
+                    
+                    entry = filtered_entries[0]  # Get the first non-mystical entry
                     logger.info(f"Entry title: {entry.title}")
                     logger.info(f"Entry has summary: {hasattr(entry, 'summary')}")
+                    
+                    # Mark as sent
+                    self.mark_article_sent(entry.title)
                     
                     # Try translation
                     title_hebrew = await self.translate_to_hebrew(
@@ -182,7 +230,7 @@ class HistoryBot:
                     
                     # If translation failed, use original title with note
                     if title_hebrew == entry.title:
-                        title_hebrew = f"[EN] {entry.title}"
+                        title_hebrew = f"{entry.title} [EN]"
                         logger.warning("Translation failed, using original title")
                     
                     # Handle missing summary
@@ -191,12 +239,12 @@ class HistoryBot:
                         summary = "לא זמין תיאור לכתבה זו"
                     
                     summary_hebrew = await self.translate_to_hebrew(
-                        summary[:300] + "...", "תקציר של אירוע היסטורי"
+                        summary[:900] + "...", "תקציר של אירוע היסטורי"
                     )
                     
                     # If translation failed, use original summary with note
-                    if summary_hebrew == summary[:300] + "...":
-                        summary_hebrew = f"[EN] {summary[:200]}..."
+                    if summary_hebrew == summary[:900] + "...":
+                        summary_hebrew = f"{summary[:600]}... [EN]"
                         logger.warning("Summary translation failed, using original")
                     
                     result = {
@@ -216,6 +264,14 @@ class HistoryBot:
         logger.error("Failed to fetch content from all history sources")
         return None
 
+    def is_article_sent(self, article_title: str) -> bool:
+        """Check if article was already sent today"""
+        return article_title in self.sent_articles
+    
+    def mark_article_sent(self, article_title: str):
+        """Mark article as sent"""
+        self.sent_articles.add(article_title)
+
     async def get_world_content(self) -> Optional[dict]:
         """Get interesting content from National Geographic or similar"""
         # Try main source first, then backups
@@ -230,9 +286,35 @@ class HistoryBot:
                 logger.info(f"Number of entries: {len(feed.entries)}")
                 
                 if feed.entries:
-                    # Get a random interesting entry
-                    entry = random.choice(feed.entries[:5])
+                    # Filter out mystical/pseudoscientific content
+                    filtered_entries = []
+                    mystical_keywords = [
+                        'mystical', 'psychic', 'paranormal', 'supernatural', 'magic', 'spirit', 'ghost',
+                        'astrology', 'horoscope', 'fortune', 'crystal', 'aura', 'chakra', 'energy healing',
+                        'מיסטי', 'אסטרולוגיה', 'הורוסקופ', 'אנרגיה', 'צ\'אקרה', 'רוחני', 'על טבעי'
+                    ]
+                    
+                    for entry in feed.entries[:10]:  # Check first 10 entries
+                        title_lower = entry.title.lower()
+                        if not any(keyword in title_lower for keyword in mystical_keywords):
+                            filtered_entries.append(entry)
+                    
+                    if not filtered_entries:
+                        logger.warning("All entries filtered out as mystical content")
+                        continue
+                    
+                    # Check for duplicates and get a random entry
+                    available_entries = [e for e in filtered_entries[:5] if not self.is_article_sent(e.title)]
+                    
+                    if not available_entries:
+                        logger.warning("All filtered entries already sent today")
+                        continue
+                    
+                    entry = random.choice(available_entries)
                     logger.info(f"Selected entry: {entry.title}")
+                    
+                    # Mark as sent
+                    self.mark_article_sent(entry.title)
                     
                     title_hebrew = await self.translate_to_hebrew(
                         entry.title, "כותרת של תוכן מעניין על טבע או תרבות"
@@ -240,7 +322,7 @@ class HistoryBot:
                     
                     # If translation failed, use original title with note
                     if title_hebrew == entry.title:
-                        title_hebrew = f"[EN] {entry.title}"
+                        title_hebrew = f"{entry.title} [EN]"
                         logger.warning("Title translation failed, using original")
                     
                     # Handle missing summary
@@ -249,12 +331,12 @@ class HistoryBot:
                         summary = "תוכן מעניין ללא תיאור זמין"
                     
                     summary_hebrew = await self.translate_to_hebrew(
-                        summary[:250] + "...", "תיאור של תוכן מעניין"
+                        summary[:900] + "...", "תיאור של תוכן מעניין"
                     )
                     
                     # If translation failed, use original summary with note
-                    if summary_hebrew == summary[:250] + "...":
-                        summary_hebrew = f"[EN] {summary[:150]}..."
+                    if summary_hebrew == summary[:900] + "...":
+                        summary_hebrew = f"{summary[:600]}... [EN]"
                         logger.warning("Summary translation failed, using original")
                     
                     result = {
@@ -358,9 +440,73 @@ class HistoryBot:
 # Bot handlers
 bot = HistoryBot()
 
+# Store active users for daily notifications
+active_users = set()
+
+async def send_daily_content(context: ContextTypes.DEFAULT_TYPE):
+    """Send daily content to all active users at 9 AM"""
+    if not active_users:
+        logger.info("No active users to send daily content to")
+        return
+    
+    logger.info(f"Sending daily content to {len(active_users)} users")
+    
+    for user_id in active_users:
+        try:
+            # Get today's content
+            content = await bot.get_history_today()
+            if not content:
+                logger.error("Failed to get daily content")
+                continue
+            
+            message_text = f"""
+📜 **הכתבה היומית שלך** - {datetime.now().strftime('%d/%m/%Y')}
+
+🔸 **{content['title']}**
+
+{content['summary']}
+
+📚 **מקור:** {content['link']}
+
+שלח /start כדי להמשיך עם תוכן נוסף!
+"""
+            
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=message_text,
+                parse_mode='Markdown',
+                disable_web_page_preview=True
+            )
+            
+            logger.info(f"Sent daily content to user {user_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send daily content to user {user_id}: {e}")
+
+def schedule_daily_content(application):
+    """Schedule daily content at 9 AM"""
+    async def job():
+        await send_daily_content(application.context)
+    
+    # Schedule for 9 AM every day
+    schedule.every().day.at("09:00").do(lambda: asyncio.create_task(job()))
+    
+    def run_scheduler():
+        while True:
+            schedule.run_pending()
+            time.sleep(60)  # Check every minute
+    
+    scheduler_thread = Thread(target=run_scheduler)
+    scheduler_thread.daemon = True
+    scheduler_thread.start()
+    logger.info("Daily content scheduler started")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the daily history cycle"""
     user = update.effective_user
+    
+    # Add user to active users list for daily notifications
+    active_users.add(user.id)
     
     logger.info(f"🚀 User {user.first_name} ({user.id}) started a new session")
     
@@ -497,10 +643,11 @@ async def video_content_handler(update: Update, context: ContextTypes.DEFAULT_TY
     
     # Search for a relevant video based on previous content
     video_queries = [
-        "היסטוריה מעניינת",
-        "יהלומים מפורסמים",
-        "עובדות היסטוריות",
-        "גילויים ארכיאולוגיים"
+        "National Geographic nature",
+        "National Geographic wildlife",
+        "National Geographic documentary",
+        "נשיונל גיאוגרפיק טבע",
+        "נשיונל גיאוגרפיק בעלי חיים"
     ]
     
     video_content = await bot.search_youtube_video(random.choice(video_queries))
@@ -644,6 +791,9 @@ def main():
         logger.error(f"Exception while handling an update: {context.error}")
     
     application.add_error_handler(error_handler)
+    
+    # Start daily content scheduler
+    schedule_daily_content(application)
     
     # Start the bot
     logger.info("🚀 בוט היסטורי מתחיל לפעול...")
